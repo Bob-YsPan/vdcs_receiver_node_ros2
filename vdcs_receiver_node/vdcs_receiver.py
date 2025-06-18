@@ -69,23 +69,6 @@ class VDCS_Receiver(Node):
 
         # Time difference between VDCS timer and ROS Environment
         self.time_diff_vdcs = 0
-
-        # Maybe have remaining data from the MCU's buffer, clear it!
-        self.get_logger().info(f"Clear remaining datas...")
-        in_waiting = 0
-        # Increase timeout to 1s to ensure remaining data send
-        self.ser.timeout = 1
-        while(True):
-            buf = self.ser.read(1)
-            in_waiting += self.ser.in_waiting + len(buf)
-            if(self.ser.in_waiting + len(buf) > 0):
-                self.ser.reset_input_buffer()
-                self.ser.reset_output_buffer()
-            else:
-                self.get_logger().info(f"Already clear remaining {in_waiting} bytes data in serial!")
-                # Back timeout to 10ms
-                self.ser.timeout = 0.01
-                break
         
         # Split a thread to receive data from serial
         self.rw_loop_thread = Thread(target=self.rw_loop, daemon=True)
@@ -151,8 +134,9 @@ class VDCS_Receiver(Node):
                     self.ser.write(packet)
             else:
                 # Send time packet at very first time
+                # Serial buffer need to cleared first
                 # Send it every 500ms, 因為ping的timer此時還不會用到，因此挪來這邊先用
-                if((now_time - self.last_ping_time) / 1e6 > 500):
+                if((now_time - self.last_ping_time) / 1e6 > 500 and recv_step > 1):
                     # Reset timer
                     self.last_ping_time = now_time
                     self.get_logger().info("Send time packet!")
@@ -160,11 +144,30 @@ class VDCS_Receiver(Node):
                     packet = b'As\x04Time' + self.chksum_cal(b'Time').to_bytes(1, 'little') + b'pk'
                     # Send time request packet
                     self.ser.write(packet) 
+            # Hint user and increase timer
+            if recv_step == 0:
+                # Maybe have remaining data from the MCU's buffer, clear it!
+                self.get_logger().warn(f"Clear remaining datas...")
+                # Increase timeout to 1s to ensure remaining data send
+                self.ser.timeout = 1
+                recv_step = 1
+            # Start clearing the remaining data in the buffer
+            elif recv_step == 1:
+                buf = self.ser.read(1)
+                in_waiting = self.ser.in_waiting + len(buf)
+                if(in_waiting > 0):
+                    self.ser.reset_input_buffer()
+                    self.ser.reset_output_buffer()
+                else:
+                    self.get_logger().info(f"Serial buffer clear successfully!")
+                    # Back timeout to 10ms
+                    self.ser.timeout = 0.01
+                    recv_step = 2
             # Have a header length data in the buffer
             # Packet format:
             # head(2) len(1) payload(len) chksum(1) foot(2) 
             # Read first byte
-            if recv_step == 0:
+            if recv_step == 2:
                 header = self.ser.read(1)
                 # Not equal the packet head, skip this package
                 if header != b'A':
@@ -175,10 +178,10 @@ class VDCS_Receiver(Node):
                 buf = self.ser.read(1)
                 # Check header vaild
                 if header == b'At' or header == b'Ar':
-                    recv_step = 1
+                    recv_step = 3
                 else:
                     self.get_logger().warn("Got uncorrect header!")
-            elif recv_step == 1:
+            elif recv_step == 3:
                 # Read length
                 len_i = int.from_bytes(buf, byteorder='little')
                 # Check data remains larger than length
@@ -193,8 +196,8 @@ class VDCS_Receiver(Node):
                 footer = buf[-2:]
                 # Footer check
                 if footer == b'pk':
-                    recv_step = 2
-            elif recv_step == 2:
+                    recv_step = 4
+            elif recv_step == 4:
                 # Slice the payload
                 payload = buf[:-3]
                 # Slice the checksum
@@ -203,15 +206,15 @@ class VDCS_Receiver(Node):
                 chksum_calc = self.chksum_cal(payload)
                 # Check checksum, one byte can compare with int
                 if chksum_calc == chksum:
-                    recv_step = 3
-            elif recv_step == 3:
+                    recv_step = 5
+            elif recv_step == 5:
                 # Data vaild, 按照header進行下一步處理
                 if header == b'At':  # Control Response
                     self.handle_time_packet(payload)
                 elif header == b'Ar':  # Robot Speed
                     self.handle_robotspeed_packet(payload)
-                # Back to first step
-                recv_step = 0
+                # Back to receiving step
+                recv_step = 2
 
     # Ping function
     def ping_vdcs(self):
