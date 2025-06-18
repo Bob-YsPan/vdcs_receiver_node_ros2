@@ -73,14 +73,18 @@ class VDCS_Receiver(Node):
         # Maybe have remaining data from the MCU's buffer, clear it!
         self.get_logger().info(f"Clear remaining datas...")
         in_waiting = 0
+        # Increase timeout to 1s to ensure remaining data send
+        self.ser.timeout = 1
         while(True):
             buf = self.ser.read(1)
             in_waiting += self.ser.in_waiting + len(buf)
-            if(in_waiting > 0):
+            if(self.ser.in_waiting + len(buf) > 0):
                 self.ser.reset_input_buffer()
                 self.ser.reset_output_buffer()
             else:
                 self.get_logger().info(f"Already clear remaining {in_waiting} bytes data in serial!")
+                # Back timeout to 10ms
+                self.ser.timeout = 0.01
                 break
         
         # Split a thread to receive data from serial
