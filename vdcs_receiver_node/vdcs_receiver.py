@@ -110,9 +110,7 @@ class VDCS_Receiver(Node):
                 # So need to send it
                 if (len(self.control_speed_duque) > 0):
                     # Get latest speed in deque
-                    vx, vy, vrz = self.control_speed_duque[-1]
-                    # Clear the remaining old value
-                    self.control_speed_duque.clear()
+                    vx, vy, vrz = self.control_speed_duque.popleft()
                     # Make the packet for control speed
                     # Header
                     packet = bytearray(30)
@@ -262,9 +260,7 @@ class VDCS_Receiver(Node):
         # Check the duque, if it have data need to publish
         if(len(self.robot_speed_duque) > 0):
             # Grab the latest velocity data
-            timestamp, vx, vy, vrz = self.robot_speed_duque[-1]
-            # Clear the remaining old value
-            self.robot_speed_duque.clear()
+            timestamp, vx, vy, vrz = self.robot_speed_duque.popleft()
             # Calculate odom time based on vdcs measured
             odom_time_now = ((timestamp * 1e6) + self.time_diff_vdcs)
             # Delta time in seconds
