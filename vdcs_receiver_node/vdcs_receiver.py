@@ -193,7 +193,7 @@ class VDCS_Receiver(Node):
                 footer = buf[-2:]
                 # Footer check
                 if footer == b'pk':
-                    recv_step == 2
+                    recv_step = 2
             elif recv_step == 2:
                 # Slice the payload
                 payload = buf[:-3]
@@ -203,7 +203,7 @@ class VDCS_Receiver(Node):
                 chksum_calc = self.chksum_cal(payload)
                 # Check checksum, one byte can compare with int
                 if chksum_calc == chksum:
-                    recv_step == 3
+                    recv_step = 3
             elif recv_step == 3:
                 # Data vaild, 按照header進行下一步處理
                 if header == b'At':  # Control Response
