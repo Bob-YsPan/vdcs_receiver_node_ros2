@@ -157,50 +157,60 @@ class VDCS_Receiver(Node):
                     packet = b'As\x04Time' + self.chksum_cal(b'Time').to_bytes(1, 'little') + b'pk'
                     # Send time request packet
                     self.ser.write(packet) 
+            recv_step = 0
+            buf = b''
             # Have a header length data in the buffer
             # Packet format:
             # head(2) len(1) payload(len) chksum(1) foot(2) 
             # Read first byte
-            header = self.ser.read(1)
-            # Not equal the packet head, skip this package
-            if header != b'A':
-                continue
-            # Continue read the header
-            header += self.ser.read(1)
-            # And read the length
-            length = self.ser.read(1)
-            # Check header vaild
-            vaild_header = header == b'At' or header == b'Ar'
-            if vaild_header:
+            if recv_step == 0:
+                header = self.ser.read(1)
+                # Not equal the packet head, skip this package
+                if header != b'A':
+                    continue
+                # Continue read the header
+                header += self.ser.read(1)
+                # And read the length
+                buf = self.ser.read(1)
+                # Check header vaild
+                if header == b'At' or header == b'Ar':
+                    recv_step = 1
+                else:
+                    self.get_logger().warn("Got uncorrect header!")
+            elif recv_step == 1:
                 # Read length
-                len_i = int.from_bytes(length, byteorder='little')
+                len_i = int.from_bytes(buf, byteorder='little')
                 # Check data remains larger than length
                 if self.ser.in_waiting < len_i + 3:
-                    # Not larger, drop this packet
+                    # Not larger, wait data arrives
                     continue
                 # while self.ser.in_waiting < len_i + 3:
                 #     time.sleep(0.001)
                 # Receive remaining data
-                remains = self.ser.read(len_i + 3)
-                # Slice the payload
-                payload = remains[:-3]
-                # Slice the checksum
-                chksum = remains[-3]
+                buf = self.ser.read(len_i + 3)
                 # Slice the footer
-                footer = remains[-2:]
+                footer = buf[-2:]
                 # Footer check
                 if footer == b'pk':
-                    # Chksum check
-                    chksum_calc = self.chksum_cal(payload)
-                    # Check checksum, one byte can compare with int
-                    if chksum_calc == chksum:
-                        # Data vaild, 按照header進行下一步處理
-                        if header == b'At':  # Control Response
-                            self.handle_time_packet(payload)
-                        elif header == b'Ar':  # Robot Speed
-                            self.handle_robotspeed_packet(payload)
-            else:
-                self.get_logger().warn("Got uncorrect header!")
+                    recv_step == 2
+            elif recv_step == 2:
+                # Slice the payload
+                payload = buf[:-3]
+                # Slice the checksum
+                chksum = buf[-3]
+                # Chksum check
+                chksum_calc = self.chksum_cal(payload)
+                # Check checksum, one byte can compare with int
+                if chksum_calc == chksum:
+                    recv_step == 3
+            elif recv_step == 3:
+                # Data vaild, 按照header進行下一步處理
+                if header == b'At':  # Control Response
+                    self.handle_time_packet(payload)
+                elif header == b'Ar':  # Robot Speed
+                    self.handle_robotspeed_packet(payload)
+                # Back to first step
+                recv_step = 0
 
     # Ping function
     def ping_vdcs(self):
