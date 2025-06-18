@@ -1,5 +1,4 @@
 import math
-from select import select
 import rclpy
 from rclpy.node import Node
 from collections import deque
@@ -18,7 +17,7 @@ class VDCS_Receiver(Node):
         # Init and define the node name
         super().__init__('vdcs_receiver')
         # Open serial port, and setup timeout to prevent blocking
-        self.ser = serial.Serial('/dev/teensy', 115200, timeout=0.1)
+        self.ser = serial.Serial('/dev/teensy', 115200, timeout=0.01)
 
         # Subscriber for receive control signal
         self.cmd_sub = self.create_subscription(Twist, 'cmd_vel', self.recv_Control, 3)
@@ -75,12 +74,11 @@ class VDCS_Receiver(Node):
         self.get_logger().info(f"Clear remaining datas...")
         in_waiting = 0
         while(True):
-            rlist, _, _, = select([self.ser], [], [], 1)
-            if (rlist):
-                in_waiting += self.ser.in_waiting
-                if(in_waiting > 0):
-                    self.ser.reset_input_buffer()
-                    self.ser.reset_output_buffer()
+            buf = self.ser.read(1)
+            in_waiting += self.ser.in_waiting + len(buf)
+            if(in_waiting > 0):
+                self.ser.reset_input_buffer()
+                self.ser.reset_output_buffer()
             else:
                 self.get_logger().info(f"Already clear remaining {in_waiting} bytes data in serial!")
                 break
@@ -158,54 +156,47 @@ class VDCS_Receiver(Node):
             # Have a header length data in the buffer
             # Packet format:
             # head(2) len(1) payload(len) chksum(1) foot(2) 
-            # Block if it not have in waiting data to prevent high cpu usage
-            rlist, _, _, = select([self.ser], [], [], 0.01)
-            if(rlist):
-                if self.ser.in_waiting >= 3:
-                    # bytes_data = self.ser.read_until(b"pk")
-                    # self.print_bytes_hex(bytes_data)
-                    # continue
-                    # Read first byte
-                    header = self.ser.read(1)
-                    # Not equal the packet head, skip this package
-                    if header != b'A':
-                        continue
-                    # Continue read the header
-                    header += self.ser.read(1)
-                    # And read the length
-                    length = self.ser.read(1)
-                    # Check header vaild
-                    vaild_header = header == b'At' or header == b'Ar'
-                    if vaild_header:
-                        # Read length
-                        len_i = int.from_bytes(length, byteorder='little')
-                        # Check data remains larger than length
-                        if self.ser.in_waiting < len_i + 3:
-                            # Not larger, drop this packet
-                            continue
-                        # while self.ser.in_waiting < len_i + 3:
-                        #     time.sleep(0.001)
-                        # Receive remaining data
-                        remains = self.ser.read(len_i + 3)
-                        # Slice the payload
-                        payload = remains[:-3]
-                        # Slice the checksum
-                        chksum = remains[-3]
-                        # Slice the footer
-                        footer = remains[-2:]
-                        # Footer check
-                        if footer == b'pk':
-                            # Chksum check
-                            chksum_calc = self.chksum_cal(payload)
-                            # Check checksum, one byte can compare with int
-                            if chksum_calc == chksum:
-                                # Data vaild, 按照header進行下一步處理
-                                if header == b'At':  # Control Response
-                                    self.handle_time_packet(payload)
-                                elif header == b'Ar':  # Robot Speed
-                                    self.handle_robotspeed_packet(payload)
-                    else:
-                        self.get_logger().warn("Got uncorrect header!")
+            # Read first byte
+            header = self.ser.read(1)
+            # Not equal the packet head, skip this package
+            if header != b'A':
+                continue
+            # Continue read the header
+            header += self.ser.read(1)
+            # And read the length
+            length = self.ser.read(1)
+            # Check header vaild
+            vaild_header = header == b'At' or header == b'Ar'
+            if vaild_header:
+                # Read length
+                len_i = int.from_bytes(length, byteorder='little')
+                # Check data remains larger than length
+                if self.ser.in_waiting < len_i + 3:
+                    # Not larger, drop this packet
+                    continue
+                # while self.ser.in_waiting < len_i + 3:
+                #     time.sleep(0.001)
+                # Receive remaining data
+                remains = self.ser.read(len_i + 3)
+                # Slice the payload
+                payload = remains[:-3]
+                # Slice the checksum
+                chksum = remains[-3]
+                # Slice the footer
+                footer = remains[-2:]
+                # Footer check
+                if footer == b'pk':
+                    # Chksum check
+                    chksum_calc = self.chksum_cal(payload)
+                    # Check checksum, one byte can compare with int
+                    if chksum_calc == chksum:
+                        # Data vaild, 按照header進行下一步處理
+                        if header == b'At':  # Control Response
+                            self.handle_time_packet(payload)
+                        elif header == b'Ar':  # Robot Speed
+                            self.handle_robotspeed_packet(payload)
+            else:
+                self.get_logger().warn("Got uncorrect header!")
 
     # Ping function
     def ping_vdcs(self):
