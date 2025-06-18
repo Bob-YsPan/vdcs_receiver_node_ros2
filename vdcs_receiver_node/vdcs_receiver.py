@@ -107,6 +107,9 @@ class VDCS_Receiver(Node):
 
     # Thread for the serial receive and send
     def rw_loop(self):
+        # Some variables for receiving
+        recv_step = 0
+        buf = b''
         # Run thread's program in a loop
         while(True):
             # Get the wall clock's time
@@ -157,8 +160,6 @@ class VDCS_Receiver(Node):
                     packet = b'As\x04Time' + self.chksum_cal(b'Time').to_bytes(1, 'little') + b'pk'
                     # Send time request packet
                     self.ser.write(packet) 
-            recv_step = 0
-            buf = b''
             # Have a header length data in the buffer
             # Packet format:
             # head(2) len(1) payload(len) chksum(1) foot(2) 
