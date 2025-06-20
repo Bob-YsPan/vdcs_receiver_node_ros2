@@ -1,4 +1,7 @@
 import math
+from select import select
+import socket
+import time
 import rclpy
 from rclpy.node import Node
 from collections import deque
@@ -13,11 +16,30 @@ import struct
 # Class for a node
 class VDCS_Receiver(Node):
     # Init function
-    def __init__(self):
+    def __init__(self, p_mode=0):
         # Init and define the node name
         super().__init__('vdcs_receiver')
-        # Open serial port, and setup timeout to prevent blocking
-        self.ser = serial.Serial('/dev/teensy', 115200, timeout=0.01)
+
+        # Make mode can access by whole class
+        self.mode = p_mode
+
+        if (self.mode == 0):
+            # Open serial port, and setup timeout to prevent blocking
+            self.ser = serial.Serial('/dev/teensy', 115200, timeout=0.01)
+            self.get_logger().info(f"Serial communication created: {self.ser.port}")
+        elif (self.mode == 1):
+            # Open udp socekt
+            # Listening IP and port (0.0.0.0 for all interface)
+            udp_ip = '0.0.0.0'
+            udp_port = 12583
+            self.s_udp_ip = '127.0.0.1'
+            self.s_udp_port = 12584
+            # Create socket
+            self.sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+            self.sock.bind((udp_ip, udp_port))
+            self.sock.setblocking(0)
+            self.get_logger().info(f"UDP communication created: {udp_ip}:{udp_port}")
+
 
         # Subscriber for receive control signal
         self.cmd_sub = self.create_subscription(Twist, 'cmd_vel', self.recv_Control, 3)
@@ -71,7 +93,10 @@ class VDCS_Receiver(Node):
         self.time_diff_vdcs = 0
         
         # Split a thread to receive data from serial
-        self.rw_loop_thread = Thread(target=self.rw_loop, daemon=True)
+        if (self.mode == 0):
+            self.rw_loop_thread = Thread(target=self.rw_loop_ser, daemon=True)
+        elif (self.mode == 1):
+            self.rw_loop_thread = Thread(target=self.rw_loop_udp, daemon=True)
         self.rw_loop_thread.start()
 
     # Calculate checksum by XOR method
@@ -89,10 +114,11 @@ class VDCS_Receiver(Node):
         print()  # for newline after printing all bytes
 
     # Thread for the serial receive and send
-    def rw_loop(self):
+    def rw_loop_ser(self):
         # Some variables for receiving
         recv_step = 0
         buf = b''
+        self.get_logger().info("Serial receiving thread start!")
         # Run thread's program in a loop
         while(True):
             # Get the wall clock's time
@@ -214,6 +240,110 @@ class VDCS_Receiver(Node):
                 # Back to receiving step
                 recv_step = 2
 
+    # Thread for the udp receive and send
+    def rw_loop_udp(self):
+        # Some variables for receiving
+        recv_step = 0
+        buf = b''
+        self.get_logger().info("UDP receiving thread start!")
+        # Run thread's program in a loop
+        while(True):
+            # Get the wall clock's time
+            now_time = self.get_clock().now().nanoseconds
+            # To start the send function, need to sync time first (Ping vdcs will start send data)
+            # Disconnect handshake will implement at future
+            if(self.time_sync):
+                # Ping VDCS each 3 seconds (Timeout of VDCS is 5 seconds)
+                if((now_time - self.last_ping_time) / 1e6 > 3000):
+                    # Ping vdcs
+                    # print("Ping once!")
+                    self.ping_vdcs()
+                    # Reset timer
+                    self.last_ping_time = now_time
+
+                # If control speed deque not empty, means new control speed command arrives
+                # So need to send it
+                if (len(self.control_speed_duque) > 0):
+                    # Get latest speed in deque
+                    vx, vy, vrz = self.control_speed_duque.popleft()
+                    # Make the packet for control speed
+                    # Header
+                    packet = bytearray(30)
+                    packet[0:2] = b'Ac'
+                    # Length
+                    packet[2] = 24
+                    # Payload
+                    # Pack vx, vy, and vrz as IEEE 754 floats
+                    # < = Little-endian, f = float
+                    packet[3:7]   = struct.pack('<f', vx)
+                    packet[7:11]  = struct.pack('<f', vy)
+                    packet[23:27] = struct.pack('<f', vrz)
+                    # Checksum over payload (bytes 3 to 26)
+                    payload = packet[3:27]
+                    packet[27] = self.chksum_cal(payload)
+                    # Footer
+                    packet[28:30] = b'pk'
+                    # Send it
+                    self.sock.sendto(packet, (self.s_udp_ip, self.s_udp_port))
+            else:
+                # Send time packet at very first time
+                # Serial buffer need to cleared first
+                # Send it every 500ms, 因為ping的timer此時還不會用到，因此挪來這邊先用
+                if((now_time - self.last_ping_time) / 1e6 > 500):
+                    # Reset timer
+                    self.last_ping_time = now_time
+                    self.get_logger().info("Send time packet!")
+                    # One line create time request packet
+                    packet = b'As\x04Time' + self.chksum_cal(b'Time').to_bytes(1, 'little') + b'pk'
+                    # Send time request packet
+                    self.sock.sendto(packet, (self.s_udp_ip, self.s_udp_port))
+            if recv_step == 0:
+                ready = select([self.sock], [], [], 0.01)
+                if ready[0]:
+                    buf, addr = self.sock.recvfrom(1024)
+                    header = buf[:2]
+                    # Check header vaild
+                    if header == b'At' or header == b'Ar':
+                        recv_step = 1
+                    else:
+                        self.get_logger().warn("Got uncorrect header!")
+            elif recv_step == 1:
+                # Length check
+                len_i = buf[2]
+                # Length not match, drop it
+                if len(buf[3:]) < len_i + 3:
+                    recv_step = 0
+                    self.get_logger().warn("Length check fail!")
+                    continue
+                # Footer check
+                if buf[-2:] == b'pk':
+                    recv_step = 2
+                else:
+                    recv_step = 0
+                    self.get_logger().warn("Footer check fail!")
+            elif recv_step == 2:
+                # Slice the payload
+                payload = buf[3:-3]
+                # Slice the checksum
+                chksum = buf[-3]
+                # Chksum check
+                chksum_calc = self.chksum_cal(payload)
+                # Check checksum, one byte can compare with int
+                if chksum_calc == chksum:
+                    recv_step = 3
+                else:
+                    recv_step = 0
+            elif recv_step == 3:
+                # Slice the payload
+                payload = buf[3:-3]
+                # Data vaild, 按照header進行下一步處理
+                if header == b'At':  # Control Response
+                    self.handle_time_packet(payload)
+                elif header == b'Ar':  # Robot Speed
+                    self.handle_robotspeed_packet(payload)
+                # Back to receiving step
+                recv_step = 0
+
     # Ping function
     def ping_vdcs(self):
         # Reset timer
@@ -221,7 +351,10 @@ class VDCS_Receiver(Node):
         # Create ping packet use one line
         packet = b'As\x04Ping' + self.chksum_cal(b'Ping').to_bytes(1, 'little') + b'pk'
         # Send packet
-        self.ser.write(packet)
+        if (self.mode == 0):
+            self.ser.write(packet)
+        elif (self.mode == 1):
+            self.sock.sendto(packet, (self.s_udp_ip, self.s_udp_port))
 
     # Time packet
     def handle_time_packet(self, payload):
@@ -311,12 +444,20 @@ class VDCS_Receiver(Node):
         self.control_speed_duque.append((msg.linear.x, msg.linear.y, msg.angular.z))
 
 # Init the node
-def main(args=None):
+def main_ser(args=None):
     rclpy.init(args=args)
-    node = VDCS_Receiver()
+    node = VDCS_Receiver(p_mode=0)
+    rclpy.spin(node)
+    node.destroy_node()
+    rclpy.shutdown()
+
+# Init the node
+def main_udp(args=None):
+    rclpy.init(args=args)
+    node = VDCS_Receiver(p_mode=1)
     rclpy.spin(node)
     node.destroy_node()
     rclpy.shutdown()
 
 if __name__ == '__main__':
-    main()
+    main_ser()

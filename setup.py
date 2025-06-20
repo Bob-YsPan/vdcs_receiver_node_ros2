@@ -20,7 +20,8 @@ setup(
     tests_require=['pytest'],
     entry_points={
         'console_scripts': [
-            'vdcs_receiver_node = vdcs_receiver_node.vdcs_receiver:main',
+            'vdcs_receiver_node_ser = vdcs_receiver_node.vdcs_receiver:main_ser',
+            'vdcs_receiver_node_udp = vdcs_receiver_node.vdcs_receiver:main_udp',
         ],
     },
 )
