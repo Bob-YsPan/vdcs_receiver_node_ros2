@@ -75,6 +75,9 @@ def generate_launch_description():
             executable='vdcs_receiver_node_ser',
             name='vdcs_receiver_node_serial',
             output='screen',
+            parameters=[{
+                'serial_port': LaunchConfiguration('base_serial_port'),
+            }]
         ),
         
         # Custom IMU Driver with/without magnetometer
