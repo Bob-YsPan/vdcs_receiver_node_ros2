@@ -23,9 +23,13 @@ class VDCS_Receiver(Node):
         # Make mode can access by whole class
         self.mode = p_mode
 
+        # Launch argument to define the port to communicate with
+        self.declare_parameter('serial_port', '/dev/teensy')
+        self.serial_port = self.get_parameter('serial_port').get_parameter_value().string_value
+
         if (self.mode == 0):
             # Open serial port, and setup timeout to prevent blocking
-            self.ser = serial.Serial('/dev/teensy', 115200, timeout=0.01)
+            self.ser = serial.Serial(self.serial_port, 115200, timeout=0.01)
             self.get_logger().info(f"Serial communication created: {self.ser.port}")
         elif (self.mode == 1):
             # Open udp socekt
