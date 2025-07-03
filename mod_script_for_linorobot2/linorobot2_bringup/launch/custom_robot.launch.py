@@ -12,6 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import os
 from launch import LaunchDescription
 from launch.actions import IncludeLaunchDescription, DeclareLaunchArgument, ExecuteProcess
 from launch.substitutions import PathJoinSubstitution, LaunchConfiguration
@@ -31,7 +32,8 @@ def generate_launch_description():
     )
 
     # Define the path to your bridge script
-    minibot_bridge_script_path = "/home/osboxes/linorobot2_ws/src/separate_structure/base_control_vdcs_bridge.py"
+    home_directory = os.path.expanduser("~")
+    minibot_bridge_script_path = f"{home_directory}/linorobot2_ws/src/separate_structure/base_control_vdcs_bridge.py"
 
     return LaunchDescription([
         # #run robot driver
