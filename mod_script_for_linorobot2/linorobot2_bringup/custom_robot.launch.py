@@ -13,7 +13,7 @@
 # limitations under the License.
 
 from launch import LaunchDescription
-from launch.actions import IncludeLaunchDescription, DeclareLaunchArgument
+from launch.actions import IncludeLaunchDescription, DeclareLaunchArgument, ExecuteProcess
 from launch.substitutions import PathJoinSubstitution, LaunchConfiguration
 from launch.launch_description_sources import PythonLaunchDescriptionSource
 from launch_ros.actions import Node
@@ -29,6 +29,9 @@ def generate_launch_description():
     description_launch_path = PathJoinSubstitution(
         [FindPackageShare('linorobot2_description'), 'launch', 'description.launch.py']
     )
+
+    # Define the path to your bridge script
+    minibot_bridge_script_path = "/home/osboxes/linorobot2_ws/src/separate_structure/base_control_vdcs_bridge.py"
 
     return LaunchDescription([
         # #run robot driver
@@ -46,8 +49,21 @@ def generate_launch_description():
         #     name='raspicam2',
         #     output='screen'
         # ),
-        # My VDCS receiver
 
+        # Launch the bridge first, if you not need the bridge, just comment it out
+        # This ExecuteProcess action will run your Python script.
+        # It's placed at the beginning of the LaunchDescription list
+        # to ensure it starts before other nodes.
+        ExecuteProcess(
+            cmd=['python3', minibot_bridge_script_path],
+            output='screen', # This will print the script's output to the console
+            name='minibot_base_bridge_process', # A unique name for this process
+            # Optional: Set respawn=True if you want the bridge to automatically restart if it crashes
+            # respawn=True,
+            # respawn_delay=2.0, # Optional: Delay before respawning
+        ),
+
+        # My VDCS receiver
         DeclareLaunchArgument(
             name='base_serial_port', 
             default_value='/dev/teensy',
