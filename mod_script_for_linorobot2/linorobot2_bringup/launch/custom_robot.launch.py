@@ -52,19 +52,6 @@ def generate_launch_description():
         #     output='screen'
         # ),
 
-        # Launch the bridge first, if you not need the bridge, just comment it out
-        # This ExecuteProcess action will run your Python script.
-        # It's placed at the beginning of the LaunchDescription list
-        # to ensure it starts before other nodes.
-        ExecuteProcess(
-            cmd=['python3', minibot_bridge_script_path],
-            output='screen', # This will print the script's output to the console
-            name='minibot_base_bridge_process', # A unique name for this process
-            # Optional: Set respawn=True if you want the bridge to automatically restart if it crashes
-            # respawn=True,
-            # respawn_delay=2.0, # Optional: Delay before respawning
-        ),
-
         # My VDCS receiver
         DeclareLaunchArgument(
             name='base_serial_port', 
@@ -77,6 +64,27 @@ def generate_launch_description():
             default_value='false',
             description='Transport use UDP or UART mode, true to use UDP mode.'
         ),
+
+        DeclareLaunchArgument(
+            name='use_bridge', 
+            default_value='false',
+            description='Use bridge to convert protocol.'
+        ),
+
+        # Launch the bridge first, if you not need the bridge, just comment it out
+        # This ExecuteProcess action will run your Python script.
+        # It's placed at the beginning of the LaunchDescription list
+        # to ensure it starts before other nodes.
+        ExecuteProcess(
+            condition=IfCondition(LaunchConfiguration("use_bridge")),
+            cmd=['python3', minibot_bridge_script_path],
+            output='screen', # This will print the script's output to the console
+            name='minibot_base_bridge_process', # A unique name for this process
+            # Optional: Set respawn=True if you want the bridge to automatically restart if it crashes
+            # respawn=True,
+            # respawn_delay=2.0, # Optional: Delay before respawning
+        ),
+
 
         # Use "transport_udp" argument to ensure the transport mode use udp or uart
         Node(

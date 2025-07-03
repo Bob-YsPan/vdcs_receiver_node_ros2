@@ -76,6 +76,12 @@ def generate_launch_description():
         ),
 
         DeclareLaunchArgument(
+            name='use_bridge', 
+            default_value='false',
+            description='Use bridge to convert protocol.'
+        ),
+
+        DeclareLaunchArgument(
             name='micro_ros_transport',
             default_value='serial',
             description='micro-ROS transport'
@@ -139,7 +145,8 @@ def generate_launch_description():
             condition=UnlessCondition(LaunchConfiguration("custom_robot")),
             launch_arguments={
                 'base_serial_port': LaunchConfiguration("base_serial_port"),
-                'transport_udp': LaunchConfiguration("transport_udp")
+                'transport_udp': LaunchConfiguration("transport_udp"),
+                'use_bridge': LaunchConfiguration("use_bridge"),
             }.items()
         ),
 
