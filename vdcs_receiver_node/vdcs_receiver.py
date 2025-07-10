@@ -342,9 +342,20 @@ class VDCS_Receiver(Node):
                 payload = buf[3:-3]
                 # Data vaild, 按照header進行下一步處理
                 if header == b'At':  # Control Response
-                    self.handle_time_packet(payload)
+                    # Payload size check, ensure packet can solve by later program
+                    if (len(payload) == 4):
+                        # 32 bit = 4 bytes
+                        self.handle_time_packet(payload)
+                    else:
+                        self.get_logger().warn("Payload length check fail!")
                 elif header == b'Ar':  # Robot Speed
-                    self.handle_robotspeed_packet(payload)
+                    # Payload size check, ensure packet can solve by later program
+                    if (len(payload) == 28):
+                        # 4(time) + 4(x) + 4(y) + 12(zero) + 4(yaw)
+                        self.handle_time_packet(payload)
+                        self.handle_robotspeed_packet(payload)
+                    else:
+                        self.get_logger().warn("Payload length check fail!")
                 # Back to receiving step
                 recv_step = 0
 
